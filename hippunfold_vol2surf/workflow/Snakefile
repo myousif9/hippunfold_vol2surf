@@ -1,0 +1,255 @@
+#---- begin snakebids boilerplate ----------------------------------------------
+
+import snakebids
+from snakebids import bids
+
+configfile: workflow.source_path('../config/snakebids.yml')
+
+# Get input wildcards
+inputs = snakebids.generate_inputs(
+    bids_dir=config["bids_dir"],
+    pybids_inputs=config["pybids_inputs"],
+    pybids_database_dir=config.get("pybids_db_dir"),
+    pybids_reset_database=config.get("pybids_db_reset"),
+    derivatives=config.get("derivatives", None),
+    participant_label=config.get("participant_label", None),
+    exclude_participant_label=config.get("exclude_participant_label", None),
+    use_bids_inputs=True,
+)
+
+
+
+#this adds constraints to the bids naming
+wildcard_constraints:  **snakebids.get_wildcard_constraints(config['pybids_inputs'])
+
+#---- end snakebids boilerplate ------------------------------------------------
+
+smooth2string = lambda num: str(num).replace('.','p')+'mm'
+
+rule vol2hippo:
+    input: 
+        surf = join(
+            config['hippunfold'],
+            bids(
+                root ='hippunfold',
+                subject = '{subject}',
+                datatype = 'surf',
+                hemi = '{hemi}',
+                space = '{space}',
+                den = '{density}',
+                label = '{label}',
+                suffix = '{surface}.surf.gii'
+            )),
+        unfolded_surf = join(
+            config['hippunfold'],
+            bids(
+                root ='hippunfold',
+                subject = '{subject}',
+                datatype = 'surf',
+                hemi = '{hemi}',
+                space = 'unfolded',
+                den = '{density}',
+                label = '{label}',
+                suffix = '{surface}.surf.gii'
+            )),
+        vol = inputs.input_path['vol']
+    params:
+        sub_dir = 'results/sub-{subject}/surf/'
+    output: 
+        surf_metric = bids(
+            root = 'results',
+            subject = '{subject}',
+            datatype = 'surf',
+            hemi = '{hemi}',
+            space = '{space}',
+            den = '{density}',
+            label = '{label}',
+            suffix = '{metric}.shape.gii'
+        ),
+    group: 'subj'
+    container: config['singularity']['graham']['autotop'] if config['graham'] else config['singularity']['docker']['autotop']
+    threads: config['resources']['cores']
+    resources:
+        mem_mb = config['resources']['mem_mb'],
+        time = config['resources']['time']
+    shell:
+        """
+        wb_command -volume-to-surface-mapping {input.vol} {input.surf} {output.surf_metric} -trilinear
+        mkdir -p {params.sub_dir}
+
+        cp -n {input.surf} {params.sub_dir}
+        cp -n {input.unfolded_surf} {params.sub_dir}
+        """
+
+rule smoothing:
+    input: 
+        surf_metric = rules.vol2hippo.output.surf_metric,
+        surf = join(
+            config['hippunfold'],
+            bids(
+                root ='hippunfold',
+                subject = '{subject}',
+                datatype = 'surf',
+                hemi = '{hemi}',
+                space = '{space}',
+                den = '{density}',
+                label = '{label}',
+                suffix = '{surface}.surf.gii'
+            )),
+    params: 
+        fwhm = lambda wildcards: float(wildcards.fwhm.replace('mm','').replace('p','.'))
+    output: 
+        surf_metric = bids(
+            root = 'results',
+            subject = '{subject}',
+            datatype = 'surf',
+            hemi = '{hemi}',
+            space = '{space}',
+            den = '{density}',
+            fwhm = '{fwhm}',
+            label = '{label}',
+            surf = '{surface}',
+            suffix = '{metric}.shape.gii'
+        ),
+    group: 'subj'
+    container: config['singularity']['graham']['autotop'] if config['graham'] else config['singularity']['docker']['autotop']
+    threads: config['resources']['cores']
+    resources:
+        mem_mb = config['resources']['mem_mb'],
+        time = config['resources']['time']
+    shell: "wb_command -metric-smoothing {input.surf} {input.surf_metric} {params.fwhm} {output.surf_metric} -fwhm"
+
+rule metric:
+    input: 
+        metricL = expand(
+            rules.vol2hippo.output.surf_metric,
+            hemi = 'L',
+            allow_missing=True
+        ),
+        metricR = expand(
+            rules.vol2hippo.output.surf_metric,
+            hemi = 'R',
+            allow_missing=True
+        ),
+    output:
+        dscalar = bids(
+            root = 'results',
+            subject = '{subject}',
+            datatype = 'surf',
+            space = '{space}',
+            den = '{density}',
+            label = '{label}',
+            surf = '{surface}',
+            suffix = '{metric}.dscalar.nii'
+        ),
+    group: 'subj'
+    container: config['singularity']['graham']['autotop'] if config['graham'] else config['singularity']['docker']['autotop']
+    threads: config['resources']['cores']
+    resources:
+        mem_mb = config['resources']['mem_mb'],
+        time = config['resources']['time']
+    shell: "wb_command -cifti-create-dense-scalar {output.surf} -left-metric {input.metricL} -right-metric {input.metricR}"
+
+rule metric_smooth:
+    input: 
+        metricL = expand(
+            rules.smoothing.output.surf_metric,
+            hemi = 'L',
+            allow_missing=True
+        ),
+        metricR = expand(
+            rules.smoothing.output.surf_metric,
+            hemi = 'R',
+            allow_missing=True
+        ),
+    output:
+        dscalar = bids(
+            root = 'results',
+            subject = '{subject}',
+            datatype = 'surf',
+            space = '{space}',
+            den = '{density}',
+            fwhm = '{fwhm}',
+            label = '{label}',
+            surf = '{surface}',
+            suffix = '{metric}.dscalar.nii'
+        ),
+    group: 'subj'
+    container: config['singularity']['graham']['autotop'] if config['graham'] else config['singularity']['docker']['autotop']
+    threads: config['resources']['cores']
+    resources:
+        mem_mb = config['resources']['mem_mb'],
+        time = config['resources']['time']
+    shell: "wb_command -cifti-create-dense-scalar {output.surf} -left-metric {input.metricL} -right-metric {input.metricR}"
+
+rule group_:
+    input: 
+    output: 
+    run: 
+
+
+smooth2string = lambda num: str(num).replace('.','p')+'mm'
+
+rule all_participant:
+    input:
+        expand(
+            expand(
+                rules.metric.output.dscalar,
+                metric = inputs.input_path['vol'].split('_')[-1].split('.')[0],
+                density = config['density'],
+                space = config['modality'],
+                label = config['label'],
+                surface = config['surface'],
+                allow_missing=True,
+            ),
+            zip,
+            **inputs.input_zip_lists['vol']
+        ),
+        expand(
+            expand(
+                rules.metric_smooth.output.dscalar,
+                metric = inputs.input_path['vol'].split('_')[-1].split('.')[0],
+                density = config['density'],
+                space = config['modality'],
+                label = config['label'],
+                surface = config['surface'],
+                fwhm = smooth2string(config['smoothing_fwhm']),
+                allow_missing=True,
+            ),
+            zip,
+            **inputs.input_zip_lists['vol']
+        ),
+    default_target: True
+
+
+
+# rule all_group:
+#     input:
+#         expand(
+#             expand(
+#                 rules.metric.output.dscalar,
+#                 metric = inputs.input_path['vol'].split('_')[-1].split('.')[0],
+#                 density = config['density'],
+#                 space = config['modality'],
+#                 label = config['label'],
+#                 surface = config['surface'],
+#                 allow_missing=True,
+#             ),
+#             zip,
+#             **inputs.input_zip_lists['vol']
+#         ),
+#         expand(
+#             expand(
+#                 rules.metric_smooth.output.dscalar,
+#                 metric = inputs.input_path['vol'].split('_')[-1].split('.')[0],
+#                 density = config['density'],
+#                 space = config['modality'],
+#                 label = config['label'],
+#                 surface = config['surface'],
+#                 fwhm = smooth2string(config['smoothing_fwhm']),
+#                 allow_missing=True,
+#             ),
+#             zip,
+#             **inputs.input_zip_lists['vol']
+#         ),
+#     default_target: True

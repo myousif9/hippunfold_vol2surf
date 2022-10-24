@@ -1,0 +1,23 @@
+{
+    "Name": "hippunfold_vol2surf - Workflow for sampling volume data to hippunfold surfaces across bids datasets.",
+    "BIDSVersion": "1.4.0",
+    "DatasetType": "derivative",
+    "PipelineDescription":
+        {
+            "Name": "hippunfold_vol2surf",
+            "Version": "0.1.0",
+            "CodeURL": "http://github.com/myousif9/hippunfold_vol2surf",
+            "Author": "Mohamed Yousif",
+            "AuthorEmail": "myousif9@uwo.ca"
+        },
+    "GeneratedBy": [
+        {
+            "Name": "hippunfold_vol2surf",
+            "Version": "0.1.0",
+            "CodeURL": "http://github.com/myousif9/hippunfold_vol2surf",
+            "Author": "Mohamed Yousif",
+            "AuthorEmail": "myousif9@uwo.ca"
+ 
+        }
+    ]
+}
